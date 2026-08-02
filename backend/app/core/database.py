@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
@@ -25,7 +26,10 @@ class DatabaseConfig:
 
 
 def load_config() -> DatabaseConfig:
-	load_dotenv()
+	# Always load this backend's env file so inherited shell variables
+	# from other projects do not accidentally point the app elsewhere.
+	env_file = Path(__file__).resolve().parents[2] / ".env"
+	load_dotenv(env_file, override=True)
 
 	return DatabaseConfig(
 		host=os.getenv("DB_HOST", ""),

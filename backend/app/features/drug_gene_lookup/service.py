@@ -1,20 +1,40 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
-from pydantic import BaseModel, Field
+from typing import Any, Iterable
+
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
-from app.database import engine
-
-
-router = APIRouter(prefix="")
+from app.core.database import engine
 
 
-class DrugLookupRequest(BaseModel):
-	drug_names: list[str] = Field(..., min_length=1, description="List of brand or generic drug names")
+def _clean_strings(values: Iterable[str | None]) -> list[str]:
+	cleaned: list[str] = []
+	seen: set[str] = set()
+
+	for value in values:
+		if value is None:
+			continue
+
+		normalized = value.strip()
+		if not normalized:
+			continue
+
+		key = normalized.casefold()
+		if key in seen:
+			continue
+
+		seen.add(key)
+		cleaned.append(normalized)
+
+	return cleaned
 
 
-def lookup_drug_genes(drug_names: list[str]) -> list[dict[str, object]]:
+def lookup_drug_genes(drug_names: list[str]) -> list[dict[str, Any]]:
+	cleaned_names = _clean_strings(drug_names)
+	if not cleaned_names:
+		return []
+
 	query = text(
 		"""
 		WITH input_drugs AS (
@@ -27,7 +47,7 @@ def lookup_drug_genes(drug_names: list[str]) -> list[dict[str, object]]:
 				dbg.generic_name
 			FROM input_drugs i
 			JOIN knowledge.drug_brand_generic dbg
-				ON lower(dbg.brand_name) = lower(i.input_name)
+				ON lower(btrim(dbg.brand_name)) = lower(btrim(i.input_name))
 		), generic_matches AS (
 			SELECT
 				i.input_name,
@@ -36,7 +56,7 @@ def lookup_drug_genes(drug_names: list[str]) -> list[dict[str, object]]:
 				dbg.generic_name
 			FROM input_drugs i
 			JOIN knowledge.drug_brand_generic dbg
-				ON lower(dbg.generic_name) = lower(i.input_name)
+				ON lower(btrim(dbg.generic_name)) = lower(btrim(i.input_name))
 		), resolved_drugs AS (
 			SELECT * FROM brand_matches
 			UNION
@@ -53,14 +73,17 @@ def lookup_drug_genes(drug_names: list[str]) -> list[dict[str, object]]:
 			) AS gene_symbols
 		FROM resolved_drugs
 		LEFT JOIN knowledge.gene_drug_pair gdp
-			ON lower(gdp.drug_name) = lower(resolved_drugs.generic_name)
+			ON lower(btrim(gdp.drug_name)) = lower(btrim(resolved_drugs.generic_name))
 		GROUP BY input_name, matched_as, brand_name, generic_name
 		ORDER BY input_name, matched_as, brand_name, generic_name
 		"""
 	)
 
-	with engine.connect() as connection:
-		rows = connection.execute(query, {"drug_names": drug_names}).mappings().all()
+	try:
+		with engine.connect() as connection:
+			rows = connection.execute(query, {"drug_names": cleaned_names}).mappings().all()
+	except SQLAlchemyError:
+		return []
 
 	return [
 		{
@@ -72,8 +95,3 @@ def lookup_drug_genes(drug_names: list[str]) -> list[dict[str, object]]:
 		}
 		for row in rows
 	]
-
-
-@router.post("/drug-gene-lookup")
-def drug_gene_lookup(payload: DrugLookupRequest) -> dict[str, list[dict[str, object]]]:
-	return {"results": lookup_drug_genes(payload.drug_names)}

@@ -4,10 +4,10 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
-from app.services.drug_lookup import lookup_catalog
+from app.features.drug_catalog.service import lookup_catalog
 
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", tags=["drug-catalog"])
 
 
 @router.get("/drugs")

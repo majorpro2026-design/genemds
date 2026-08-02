@@ -4,10 +4,11 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from app.services.drug_lookup import PrescriptionCreateRequest, build_prescription_response
+from app.features.prescriptions.schemas import PrescriptionCreateRequest
+from app.features.prescriptions.service import build_prescription_response
 
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", tags=["prescriptions"])
 
 
 @router.post("/prescriptions")

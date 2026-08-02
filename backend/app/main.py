@@ -5,9 +5,9 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.drugs import router as drugs_router
-from app.routes.drug_gene_lookup import router as drug_gene_lookup_router
-from app.routes.prescriptions import router as prescriptions_router
+from app.features.drug_catalog.router import router as drug_catalog_router
+from app.features.drug_gene_lookup.router import router as drug_gene_lookup_router
+from app.features.prescriptions.router import router as prescriptions_router
 
 
 def _parse_cors_origins() -> list[str]:
@@ -28,7 +28,7 @@ app.add_middleware(
 	allow_headers=["*"],
 )
 
-app.include_router(drugs_router)
+app.include_router(drug_catalog_router)
 app.include_router(drug_gene_lookup_router)
 app.include_router(prescriptions_router)
 

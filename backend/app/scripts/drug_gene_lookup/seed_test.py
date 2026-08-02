@@ -4,11 +4,11 @@ import json
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
 	sys.path.insert(0, str(ROOT))
 
-from app.routes.drug_lookup import lookup_drug_genes
+from app.features.drug_gene_lookup.service import lookup_drug_genes
 
 
 SEED_DRUG_NAMES = [
