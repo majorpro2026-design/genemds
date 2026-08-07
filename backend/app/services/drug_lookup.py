@@ -10,6 +10,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.database import engine
 
+DEFAULT_DOCTOR_ID = 1  # TODO: replace once login/auth exists
+
 
 class DrugLookupRequest(BaseModel):
 	drug_names: list[str] = Field(..., min_length=1, description="List of brand or generic drug names")
@@ -18,7 +20,7 @@ class DrugLookupRequest(BaseModel):
 class PrescriptionDrugItem(BaseModel):
 	model_config = ConfigDict(populate_by_name=True)
 
-	drug_id: str | int | None = Field(default=None, alias="drugId")
+	drug_id: int = Field(..., alias="drugId")
 	drug_name: str | None = Field(default=None, alias="drugName")
 	brand_name: str | None = Field(default=None, alias="brandName")
 	strength: str | None = None
@@ -28,18 +30,19 @@ class PrescriptionDrugItem(BaseModel):
 	selected_generic: str | None = Field(default=None, alias="selectedGeneric")
 	dosage: str | None = None
 	frequency: str | None = None
-	duration_days: int | None = Field(default=None, alias="durationDays", ge=0)
+	duration_value: float | None = Field(default=None, alias="durationValue", ge=0)
+	duration_unit: str | None = Field(default=None, alias="durationUnit")
 	note: str | None = None
 
 
 class PrescriptionCreateRequest(BaseModel):
 	model_config = ConfigDict(populate_by_name=True)
 
+	patient_id: int = Field(..., alias="patientId")
 	prescription_id: str = Field(..., alias="prescriptionId")
 	prescribed_at: datetime = Field(..., alias="prescribedAt")
 	prescribed_drugs: list[PrescriptionDrugItem] = Field(..., min_length=1, alias="prescribedDrugs")
-
-
+ 
 def _clean_strings(values: Iterable[str | None]) -> list[str]:
 	cleaned: list[str] = []
 	seen: set[str] = set()
@@ -299,7 +302,7 @@ def _load_catalog() -> tuple[dict[str, Any], ...]:
 		"""
 		WITH catalog AS (
 			SELECT DISTINCT
-				md5(lower(btrim(dbg.brand_name)) || '|' || lower(btrim(dbg.generic_name))) AS drug_id,
+				dbg.id AS drug_id,
 				dbg.brand_name AS drug_name,
 				dbg.brand_name AS brand_name,
 				dbg.generic_name AS generic_name,
@@ -343,7 +346,58 @@ def _load_catalog() -> tuple[dict[str, Any], ...]:
 	)
 
 
+def _next_visit_id(connection) -> str:
+	year_month = datetime.utcnow().strftime("%Y%m")
+	serial = connection.execute(
+		text(
+			"""
+			INSERT INTO core.visit_serial (year_month, last_serial)
+			VALUES (:year_month, 1)
+			ON CONFLICT (year_month) DO UPDATE
+				SET last_serial = core.visit_serial.last_serial + 1
+			RETURNING last_serial
+			"""
+		),
+		{"year_month": year_month},
+	).scalar_one()
+	return f"{year_month}{serial:02d}"
+
+
+def _save_prescription(payload: PrescriptionCreateRequest) -> None:
+	sql = text(
+		"""
+		INSERT INTO core.patient_prescription
+			(patient_id, doctor_id, drug_id, drug_name, prescribed_at, dosage, frequency, duration_value, duration_unit, notes, visit_id)
+		VALUES
+			(:patient_id, :doctor_id, :drug_id, :drug_name, :prescribed_at, :dosage, :frequency, :duration_value, :duration_unit, :notes, :visit_id)
+		"""
+	)
+
+	try:
+		with engine.begin() as connection:
+			visit_id = _next_visit_id(connection)
+			for drug in payload.prescribed_drugs:
+				connection.execute(
+					sql,
+					{
+						"patient_id": payload.patient_id,
+						"doctor_id": DEFAULT_DOCTOR_ID,
+						"drug_id": drug.drug_id,
+						"drug_name": drug.drug_name,
+						"prescribed_at": payload.prescribed_at,
+						"dosage": drug.dosage,
+						"frequency": drug.frequency,
+						"duration_value": drug.duration_value,
+						"duration_unit": drug.duration_unit,
+						"notes": drug.note,
+						"visit_id": visit_id,
+					},
+				)
+	except SQLAlchemyError as exc:
+		raise RuntimeError(f"Failed to save prescription: {exc}") from exc
+
 def build_prescription_response(payload: PrescriptionCreateRequest) -> dict[str, Any]:
+	_save_prescription(payload)
 	search_terms = _resolve_terms_from_prescription(payload)
 	lookup_rows = lookup_drug_genes(search_terms)
 	resolved_drugs = [
@@ -362,4 +416,4 @@ def build_prescription_response(payload: PrescriptionCreateRequest) -> dict[str,
 		"geneSymbols": gene_symbols,
 		"suggestedTests": suggested_tests,
 		"resolvedDrugs": resolved_drugs,
-	}
+  }

@@ -1,5 +1,9 @@
 import './style.css'
 import './catalogue.css'
+import { icon, escapeHtml, escapeAttr } from './utils/dom'
+import { patientStep, syncPatientField, createPatient, getPatientId, resetPatient } from './pages/newPatient'
+
+
 
 type Drug = {
   id: string
@@ -67,34 +71,9 @@ let suggestedTests: SuggestedTest[] = []
 
 const app = document.querySelector<HTMLDivElement>('#app')!
 
-const icon = (name: 'plus' | 'search' | 'chevron' | 'trash' | 'check' | 'arrow' | 'refresh' | 'warning') => {
-  const paths = {
-    plus: '<path d="M12 5v14M5 12h14"/>',
-    search: '<circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/>',
-    chevron: '<path d="m7 10 5 5 5-5"/>',
-    trash: '<path d="M4 7h16M10 11v6m4-6v6M9 7l1-2h4l1 2m-9 0 1 13h10l1-13"/>',
-    check: '<path d="m5 12 4 4L19 6"/>',
-    arrow: '<path d="M5 12h14m-6-6 6 6-6 6"/>',
-    refresh: '<path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"/>',
-    warning: '<path d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>',
-  }
-  return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name]}</svg>`
-}
-
 const geneLogo = `<svg class="gene-logo" viewBox="0 0 48 48" aria-hidden="true"><path fill="#ffffff18" stroke-width="1.5" d="M24 4 39 10v11c0 10-6.2 18.2-15 23C15.2 39.2 9 31 9 21V10L24 4Z"/><path stroke="#d9efff" d="M17 14c8 0 6 20 14 20M31 14c-8 0-6 20-14 20M18 19h12M18 29h12"/><path stroke-width="2.3" d="M24 20v8m-4-4h8"/></svg>`
 
-function escapeHtml(value: string) {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;')
-}
 
-function escapeAttr(value: string) {
-  return escapeHtml(value)
-}
 
 const isComplete = (item: PrescriptionDrug) => Boolean(item.dosage && item.frequency && item.duration)
 const allComplete = () => items.length > 0 && items.every(isComplete)
@@ -115,16 +94,16 @@ function render() {
 
       <section class="page-heading">
         <div>
-          <h1>${step === 1 ? 'Create a new prescription' : step === 2 ? 'Review drug & generic information' : 'Prescription complete'}</h1>
-          <p>${step === 1 ? 'Add medicines and treatment directions for your patient.' : step === 2 ? 'Confirm the generic information for the prescribed medicines.' : 'Your prescription has been created and is ready to share.'}</p>
+          <h1>${step === 1 ? 'Add patient' : step === 2 ? 'Create a new prescription' : step === 3 ? 'Review drug & generic information' : 'Prescription complete'}</h1>
+          <p>${step === 1 ? "Enter the patient's details to begin." : step === 2 ? 'Add medicines and treatment directions for your patient.' : step === 3 ? 'Confirm the generic information for the prescribed medicines.' : 'Your prescription has been created and is ready to share.'}</p>
         </div>
-        ${step < 3 ? `<div class="step-count">Step <strong>${step}</strong> of 3</div>` : ''}
+        ${step < 4 ? `<div class="step-count">Step <strong>${step}</strong> of 4</div>` : ''}
       </section>
 
       ${stepper()}
 
       <div class="page-stage step-${step}">
-        ${step === 1 ? createStep() : step === 2 ? reviewStep() : successStep()}
+        ${step === 1 ? patientStep() : step === 2 ? createStep() : step === 3 ? reviewStep() : successStep()}
       </div>
     </main>
   `
@@ -134,12 +113,12 @@ function render() {
 }
 
 function stepper() {
-  const labels = ['Create prescription', 'Review drug info', 'Test recommendation']
+  const labels = ['Add patient', 'Create prescription', 'Review drug info', 'Test recommendation']
   return `<nav class="stepper" aria-label="Prescription steps">${labels
     .map((label, index) => {
       const n = index + 1
       const state = n === step ? 'active' : n < step ? 'done' : ''
-      return `<div class="step ${state}"><span class="step-number">${n < step ? icon('check') : n}</span><span>${label}</span></div>${n < 3 ? '<div class="step-line"></div>' : ''}`
+      return `<div class="step ${state}"><span class="step-number">${n < step ? icon('check') : n}</span><span>${label}</span></div>${n < labels.length ? '<div class="step-line"></div>' : ''}`
     })
     .join('')}</nav>`
 }
@@ -521,17 +500,19 @@ async function submitPrescription() {
   render()
 
   const payload = {
+    patientId: getPatientId(),
     prescriptionId: `draft-${Date.now()}`,
     prescribedAt: new Date().toISOString(),
     prescribedDrugs: items.map(item => ({
-      drugId: item.id,
+      drugId: Number(item.id),
       drugName: item.name,
       strength: item.strength,
       generics: item.generics,
       selectedGeneric: item.selectedGeneric,
       dosage: item.dosage,
       frequency: item.frequency,
-      durationDays: Number(item.duration),
+      durationValue: Number(item.duration),
+      durationUnit: 'days',
       note: item.note,
     })),
   }
@@ -550,7 +531,7 @@ async function submitPrescription() {
     const body = (await response.json()) as { suggestedTests?: unknown }
     suggestedTests = extractSuggestedTests(body.suggestedTests)
     submitted = true
-    step = 2
+    step = 3
   } catch (error) {
     submitError = error instanceof Error ? error.message : 'Unexpected error while uploading the prescription.'
   } finally {
@@ -558,6 +539,17 @@ async function submitPrescription() {
     render()
   }
 }
+
+async function handleSavePatient() {
+  const success = await createPatient()
+  render()
+  if (success) {
+    step = 2
+    render()
+  }
+}
+
+
 
 function syncDrugField(target: HTMLInputElement | HTMLSelectElement) {
   const id = target.dataset.id
@@ -571,8 +563,9 @@ function syncDrugField(target: HTMLInputElement | HTMLSelectElement) {
   item[field] = target.value
   render()
 
+  const tagName = target.tagName
   const replacement = [...document.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-field]')].find(
-    element => element.dataset.id === id && element.dataset.field === field,
+    element => element.dataset.id === id && element.dataset.field === field && element.tagName === tagName,
   )
   if (!replacement) return
 
@@ -585,6 +578,22 @@ function syncDrugField(target: HTMLInputElement | HTMLSelectElement) {
 app.addEventListener('input', event => {
   const target = event.target as HTMLInputElement | HTMLSelectElement | null
   if (!target) return
+
+ if (target.matches('[data-patient-field]')) {
+    syncPatientField(target)
+    const selectionStart = target instanceof HTMLInputElement ? target.selectionStart : null
+    const selectionEnd = target instanceof HTMLInputElement ? target.selectionEnd : null
+    const fieldName = target.dataset.patientField
+    render()
+    const replacement = document.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-patient-field="${fieldName}"]`)
+    if (replacement) {
+      replacement.focus()
+      if (replacement instanceof HTMLInputElement && selectionStart !== null && selectionEnd !== null) {
+        replacement.setSelectionRange(selectionStart, selectionEnd)
+      }
+    }
+    return
+  }
 
   if (target.id === 'drug-search') {
     query = target.value
@@ -664,14 +673,19 @@ app.addEventListener('click', event => {
     return
   }
 
+ if (action === 'save-patient') {
+    void handleSavePatient()
+    return
+  }
+
   if (action === 'back-to-create') {
-    step = 1
+    step = 2
     render()
     return
   }
 
   if (action === 'next-step' && submitted) {
-    step = 3
+    step = 4
     render()
     return
   }
@@ -682,6 +696,7 @@ app.addEventListener('click', event => {
     items = []
     submitError = ''
     suggestedTests = []
+    resetPatient()
     render()
     return
   }

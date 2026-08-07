@@ -8,6 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.drugs import router as drugs_router
 from app.routes.drug_gene_lookup import router as drug_gene_lookup_router
 from app.routes.prescriptions import router as prescriptions_router
+from app.routes.patients import router as patients_router
+
 
 
 def _parse_cors_origins() -> list[str]:
@@ -31,7 +33,7 @@ app.add_middleware(
 app.include_router(drugs_router)
 app.include_router(drug_gene_lookup_router)
 app.include_router(prescriptions_router)
-
+app.include_router(patients_router)
 
 @app.get("/health")
 def health_check() -> dict[str, str]:

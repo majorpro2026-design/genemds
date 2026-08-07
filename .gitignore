@@ -3,3 +3,9 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+env/
+backend/env/
+backend/venv/
+backend/.venv/
+node_modules/
+.run/
